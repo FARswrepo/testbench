@@ -39,6 +39,7 @@ class TestbenchWindow(QtWidgets.QMainWindow, mainInterface.Ui_MainWindow):
         t = np.linspace(0, 10, 101)
         # Shift the sinusoid as a function of time.
         self._matplot_ax.plot(t, np.sin(t + time.time()),label="sinus")
+        self._matplot_ax.grid(True)
         self._matplot_ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
         self._matplot_ax.figure.canvas.draw()
 
