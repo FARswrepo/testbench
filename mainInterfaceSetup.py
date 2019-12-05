@@ -1,19 +1,24 @@
-from PyQt5 import QtCore, QtGui, QtWidgets
-from streamInterface import StreamThread
-import serial, numpy
-import mainInterface
-from PyQt5.QtWidgets import QTableWidgetItem
-import serial.tools.list_ports as lp
 from parser import Parser, list_available_parsers
 
+import numpy
+import serial, time
+import serial.tools.list_ports as lp
 from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
+from matplotlib.figure import Figure
+from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtGui import *
+from PyQt5.QtWidgets import *
+from PyQt5.QtWidgets import QTableWidgetItem
+
+import mainInterface
+from streamInterface import StreamThread
+
 if is_pyqt5():
     from matplotlib.backends.backend_qt5agg import (
         FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
 else:
     from matplotlib.backends.backend_qt4agg import (
         FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
-from matplotlib.figure import Figure
 
 class Ui_MainWindow_Setup(mainInterface.Ui_MainWindow):
     # main initialization function for testbench
@@ -31,6 +36,7 @@ class Ui_MainWindow_Setup(mainInterface.Ui_MainWindow):
         self.StreamTabWidget.setTabEnabled(2,False)
         self.StartStopStreamButton.clicked.connect(self.streamButtonClicked)
         self.pushButton_Load_File.clicked.connect(self.loadFileButtonClicked)
+        self.pushButton_Clear_Data.clicked.connect(self.clear_all_data)
         self.streamThread = StreamThread()
         self.streamThread.start()
 
@@ -45,6 +51,31 @@ class Ui_MainWindow_Setup(mainInterface.Ui_MainWindow):
     def browse_file(self):
         path = QtWidgets.QFileDialog.getOpenFileName(self,caption="Choose Data File")
         self.lineEdit_file_path.setText(path[0])
+
+    def clear_all_data(self):
+        self._raw_data_timer.stop()
+        self._parser_timer.stop()
+        time.sleep(0.2)
+        with StreamThread.data_lock:
+            StreamThread.data.clear()
+            self.rawDataTable.clear()
+            self.time_series_data.clear()
+    
+        # reset raw data interface variables
+        self.rawDataTable.setColumnCount(10)
+        self.rawDataTable.setRowCount(1)
+        self.rawDataIndex = 0
+        self.temp_data = bytearray()
+        self.RawData_BYTES_NUM_Text.setPlainText("0")
+        #self._raw_data_timer.start(100)
+
+        # reset parser settings
+        self.listWidget_packets.clear()
+        self.lineEdit_number_of_packets.setText("0")
+        Parser.seeker_position = 0
+        Parser.packet = bytearray()
+        self._parser_timer.start(10)
+
 
     def changeStreamType(self,index):
         lindex = [0,1,2]
@@ -65,6 +96,7 @@ class Ui_MainWindow_Setup(mainInterface.Ui_MainWindow):
             #print(self.StreamTypeSelection.currentIndex())
             self.StreamTypeSelection.setEnabled(False)
             self.StartStopStreamButton.setText("Stop Stream")
+            self.update_graph_table()
         else:
             self.stopStream()
             self.StreamTypeSelection.setEnabled(True)
@@ -73,6 +105,7 @@ class Ui_MainWindow_Setup(mainInterface.Ui_MainWindow):
 
     def loadFileButtonClicked(self):
         self.startStream(self.StreamTypeSelection.currentIndex())
+        self.update_graph_table()
 
     def startStream(self,streamIndex):
         if streamIndex == 0:
@@ -97,6 +130,7 @@ class Ui_MainWindow_Setup(mainInterface.Ui_MainWindow):
             self.streamThread.stream_type = "SerialStream"
             self.streamThread.stream_serial_setup = stream_serial_setup
             StreamThread.stop_thread = False
+
     def stopStream(self):
         StreamThread.stop_thread = True
 
@@ -113,14 +147,14 @@ class Ui_MainWindow_Setup(mainInterface.Ui_MainWindow):
         # timer for table update
         self._raw_data_timer = QtCore.QTimer(self)
         self._raw_data_timer.timeout.connect(self.update_raw_data)
-        self._raw_data_timer.start(100)
+        #self._raw_data_timer.start(100)
 
     # prototype for raw data tabel update
     def update_raw_data(self):
        # print("try to fetch data")
         with StreamThread.data_lock:
-            # take max 500 byte
-            end = min(self.rawDataIndex + 500 , len(StreamThread.data)-1) 
+            # take max 10000 byte
+            end = min(self.rawDataIndex + 10000 , len(StreamThread.data)) 
             self.temp_data = StreamThread.data[self.rawDataIndex:end]
            # print("fetching data successfull:{}".format(self.temp_data))
         for num in self.temp_data:
@@ -170,50 +204,115 @@ class Ui_MainWindow_Setup(mainInterface.Ui_MainWindow):
          # timer for table update
         self._parser_timer = QtCore.QTimer(self)
         self._parser_timer.timeout.connect(self.parse_packets)
-        self._parser_timer.start(100)
+        self._parser_timer.start(10)
 
     def parse_packets(self):
         #print("parsing packets")
         protocol = self.comboBox_parser_list.currentText()
-        packet_strings,time_series,meta_data = getattr(Parser,protocol)(None)
+        packet_strings,time_series = getattr(Parser,protocol)(None)
         self.listWidget_packets.addItems(packet_strings)
-        self.protocol_meta_data = meta_data
         self.lineEdit_number_of_packets.setText(str(self.listWidget_packets.count()))
         if len(self.time_series_data)==0:
             self.time_series_data = time_series
         else:
-            for column_index in range(0,len(time_series)):
-                self.time_series_data[column_index].extend(time_series[column_index])
+            for series in range(0,len(time_series)):
+                for index in range(0,2):
+                    self.time_series_data[series][index].extend(time_series[series][index])
         #print(self.time_series_data)
 
     #------- Graph Interface ------------# 
     def setupGraphInterface(self):
         self.matplot_canvas = FigureCanvas(Figure())
+        
         self.TabView.currentChanged.connect(self.tab_changed)
         self.horizontalLayout_4.addWidget(self.matplot_canvas)
+        self.matplot_toolbar = NavigationToolbar(self.matplot_canvas, self)
+        self.addToolBar(self.matplot_toolbar)
         self._matplot_ax = self.matplot_canvas.figure.subplots()
         self.matplot_canvas.figure.subplots_adjust(left=0.1,right=0.8)
         self._timer = self.matplot_canvas.new_timer(100,[(self._update_canvas, (), {})])
+        self.tableWidget_graph.setHorizontalHeaderLabels(["observable","unit","bias","scale","𝞂","µ","filter"])
+        self.matplot_canvas.mpl_connect('draw_event',self.drawing_init)
+        self.update_graph_table()
+
+    def drawing_init(self,event):
+        if len(self.time_series_data)>0:
+            if len(self.time_series_data[0])>0:
+                for series in range(0,len(self.time_series_data)):
+                    if self.tableWidget_graph.cellWidget(series,0).isChecked():
+                        # get x limits and calculate std and mean
+                        xlim = self._matplot_ax.get_xlim()
+                        indmin, indmax = numpy.searchsorted(self.time_series_data[series][0], xlim)
+                        indmax = min(len(self.time_series_data[series][0]) - 1, indmax)
+                        data = self.time_series_data[series][1][indmin:indmax]
+
+                        std = numpy.std(data)
+                        mean = numpy.mean(data)
+                        self.tableWidget_graph.item(series,4).setText(str(std))
+                        self.tableWidget_graph.item(series,5).setText(str(mean))
+
 
     def _update_canvas(self):
-        if len(self.time_series_data[0])>0:
-            self._matplot_ax.clear()
-            time_data = numpy.array(self.time_series_data[0]).astype(numpy.double)
-            for series in range(1,len(self.time_series_data)):
-                data = numpy.array(self.time_series_data[series])
-                none_values_mask = numpy.isfinite(data)
-                # print("Data: {}".format(data))
-                # print("Mask: {}".format(none_values_mask))
-                # print("Time: {}".format(time_data[none_values_mask]))
-                self._matplot_ax.plot(time_data[none_values_mask],
-                data[none_values_mask],label="{} [{}]".format(self.protocol_meta_data[series][0],
-                self.protocol_meta_data[series][1]))
-            self._matplot_ax.grid(True)
-            self._matplot_ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
-            self._matplot_ax.figure.canvas.draw()
+        if len(self.time_series_data)>0:
+            if len(self.time_series_data[0])>0:
+                self._matplot_ax.clear()
+                
+                for series in range(0,len(self.time_series_data)):
+                    if self.tableWidget_graph.cellWidget(series,0).isChecked():
+                        bias, scale = self.get_calibration_values(series)
+                        
+                        time_data = numpy.array(self.time_series_data[series][0])
+                        data = numpy.array(self.time_series_data[series][1])
+                        data = (data + bias) * scale
+                        self._matplot_ax.plot(time_data,
+                        data,label="{} [{}]".format(self.tableWidget_graph.cellWidget(series,0).text(),
+                        self.tableWidget_graph.item(series,1).text()))
+                
+    
+                self._matplot_ax.grid(True)
+                self._matplot_ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
+                self._matplot_ax.figure.canvas.draw()
+            else:
+                self._matplot_ax.clear()
+                self._matplot_ax.figure.canvas.draw()
+
+    def get_calibration_values(self,series):
+        try:
+            bias = float(self.tableWidget_graph.item(series,2).text())
+        except:
+            self.tableWidget_graph.item(series,2).setText("0.0")
+            bias = 0.0
+        try:
+            scale = float(self.tableWidget_graph.item(series,3).text())
+        except:
+            self.tableWidget_graph.item(series,3).setText("1.0")
+            scale = 1.0
+        
+        return (bias,scale)
+
+    def apply_filter(self):
+        pass
+
+    def update_graph_table(self):
+        # get active protocol
+        protocol = self.comboBox_parser_list.currentText()
+        protocol_func = getattr(Parser,protocol)
+        protocol_meta = protocol_func.__code__.co_consts[1] # the meta data in every protocol shall be in line one
+        #print(protocol_meta) 
+        self.tableWidget_graph.setRowCount(len(protocol_meta)-1)
+
+        for num in range(1,len(protocol_meta)):
+            self.tableWidget_graph.setCellWidget(num-1,0,QCheckBox(protocol_meta[num][0]))
+            self.tableWidget_graph.setItem(num-1,1,QTableWidgetItem(protocol_meta[num][1]))
+            self.tableWidget_graph.setItem(num-1,2,QTableWidgetItem("0.00"))
+            self.tableWidget_graph.setItem(num-1,3,QTableWidgetItem("1.0"))
+            self.tableWidget_graph.setItem(num-1,4,QTableWidgetItem("0.00"))
+            self.tableWidget_graph.setItem(num-1,5,QTableWidgetItem("0.00"))
 
     def tab_changed(self,num):
         if (num == 3) and self.StartStopStreamButton.isChecked():
             self._timer.start()
+        elif (num == 3):
+            self._update_canvas()
         else:
             self._timer.stop()

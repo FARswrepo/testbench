@@ -25,6 +25,7 @@ class StreamThread(threading.Thread):
                     pass
             #print("Stream paused")
             sleep(1)
+            
         return
 
     def startFileStream(self):
@@ -44,7 +45,7 @@ class StreamThread(threading.Thread):
                     with StreamThread.data_lock:
                         StreamThread.data.extend(temp_data)
                 # rest the thread to free resources
-                sleep(StreamThread.stream_rest) 
+                #sleep(StreamThread.stream_rest) 
 
     def startHTTPStream(self):
         pass

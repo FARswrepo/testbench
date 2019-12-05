@@ -16,13 +16,14 @@ class Parser():
         pass
 
     def _protocol_RQOBS(self):
+        meta_data = (('Time','ms'),('Channel_1','Volt'),('Channel_2','Volt'))      # a tupel containing meta data for the time series
         packet_strings = [] # a list of strings representing each decoded package
-        time_series = [[],[],[]]    # a list containing lists of time series 
-        meta_data = [('Time','ms'),('Channel_1','Volt'),('Channel_2','Volt')]      # a list containing meta data for the time series
+        time_series = [[[],[]],[[],[]]]    # a list containing lists of time series 
+        
         
         with StreamThread.data_lock:
-            # take only 500 byte at once
-            end = min(Parser.seeker_position + 500, len(StreamThread.data))
+            # take only 10000 byte at once
+            end = min(Parser.seeker_position + 10000, len(StreamThread.data))
             for index in range(Parser.seeker_position,end):
                 byte = StreamThread.data[index]
                 #print("Parser found: {}".format(byte))
@@ -33,12 +34,13 @@ class Parser():
                     Parser.packet.clear()
                     if packet_decoded.startswith("$RQOBS"):
                         split_packet = packet_decoded.split(',')
-                        time_series[0].append(float(split_packet[1]))
-                        time_series[1].append(float(split_packet[2]))
-                        time_series[2].append(float(split_packet[3]))       
+                        time_series[0][0].append(float(split_packet[1]))
+                        time_series[1][0].append(float(split_packet[1]))
+                        time_series[0][1].append(float(split_packet[2]))
+                        time_series[1][1].append(float(split_packet[3]))       
                 else:
                     Parser.packet.append(StreamThread.data[index])
                 Parser.seeker_position += 1
 
-        return packet_strings,time_series,meta_data # this shall be the standard return tupel for all protocol functions
+        return packet_strings,time_series # this shall be the standard return tupel for all protocol functions
             

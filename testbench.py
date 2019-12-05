@@ -17,13 +17,7 @@ class TestbenchWindow(QtWidgets.QMainWindow, mainInterfaceSetup.Ui_MainWindow_Se
         self.setCentralWidget(self._main)
         self.setupUi(self)
         self.addCustomSetup()
-        self.tableWidget.setHorizontalHeaderLabels(["observable","unit","a","b"])
-        self.tableWidget.setRowCount(1)
-        self.tableWidget.setColumnCount(4)
-        self.tableWidget.setCellWidget(0,0,QCheckBox("sinus"))
-        self.tableWidget.setItem(0,1,QTableWidgetItem("none"))
-        self.tableWidget.setItem(0,2,QTableWidgetItem("0.0004"))
-        self.tableWidget.setItem(0,3,QTableWidgetItem("-9.7600"))
+        
 
     def closeEvent(self,event):
         self._timer.stop()
